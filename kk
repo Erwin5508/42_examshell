@@ -67,6 +67,17 @@ get_status() {
 	fi
 }
 
+# Focus mode — exam emergency drill. Limits practice to the exos you said
+# you fear the most : linked lists + ft_split (string slicing). Edit this
+# list to add ft_strjoin or others if you add their exo dirs later.
+EXAM_FOCUS_EXOS=(
+	"ft_list_size"
+	"ft_list_foreach"
+	"ft_list_remove_if"
+	"sort_list"
+	"ft_split"
+)
+
 cmd_help() {
 	cat <<EOF
 kk — 42 exam shell
@@ -75,6 +86,8 @@ Usage:
   ./kk                  launch the interactive exam menu
   ./kk play             interactive : iterate next todo, like a real exam
                         (test / done / skip / next / exit at each step)
+  ./kk exam             FOCUS MODE : drill only on list / split exos
+                        (the ones you fear for tomorrow)
   ./kk run <exo>        compile + test one exo by name
   ./kk new <exo>        scaffold rendu/<exo>/ (subject.txt + sub.txt
                         + main.c.ref + empty <exo>.c) and show the subject
@@ -89,6 +102,77 @@ Usage:
   ./kk list [rank]      list exos (in a rank or all)
   ./kk help             this message
 EOF
+}
+
+# Focus-mode loop : same shape as cmd_play but restricted to EXAM_FOCUS_EXOS.
+# Picks them in a random order so you don't memorise the sequence — only the
+# patterns. Tracks status in the normal .progress file but prints a separate
+# focus-only progress header.
+cmd_exam() {
+	head1 "🎯 EXAM FOCUS MODE — drill on $(echo ${EXAM_FOCUS_EXOS[*]} | tr ' ' ',')"
+	printf "${c_dim}Each round picks ONE focus exo at random among those still 'todo'.${c_off}\n"
+	printf "${c_dim}Type : test | done | skip | next | exit at each step.${c_off}\n"
+	echo
+
+	# Random order each session (Fisher-Yates lite).
+	local pool=("${EXAM_FOCUS_EXOS[@]}")
+
+	while true; do
+		# Build the list of still-todo focus exos.
+		local todo=()
+		for e in "${EXAM_FOCUS_EXOS[@]}"; do
+			local s
+			s=$(get_status "$e")
+			[ "$s" = "todo" ] && todo+=("$e")
+		done
+
+		# Focus-progress header.
+		local total=${#EXAM_FOCUS_EXOS[@]}
+		local left=${#todo[@]}
+		local done_n=$((total - left))
+		printf "${c_blue}── focus : %d / %d done ──${c_off}\n" "$done_n" "$total"
+
+		if [ "$left" -eq 0 ]; then
+			ok "All focus exos done. You're ready for tomorrow. 🎉"
+			return 0
+		fi
+
+		# Pick one at random.
+		local idx=$((RANDOM % left))
+		local exo="${todo[$idx]}"
+		local path
+		path=$(find_exo_dir "$exo" | sed 's|^\.resources/||')
+		local exo_dir=".resources/$path"
+
+		# Scaffold rendu if needed.
+		mkdir -p "rendu/$exo"
+		if [ -f "$exo_dir/sub.txt" ] && [ ! -f "rendu/$exo/subject.txt" ]; then
+			cp "$exo_dir/sub.txt" "rendu/$exo/subject.txt"
+		fi
+		if [ ! -f "rendu/$exo/$exo.c" ]; then
+			printf '// %s — your solution goes here\n' "$exo" > "rendu/$exo/$exo.c"
+		fi
+
+		clear
+		head1 "🎯 $exo  ($path)   [focus $((done_n + 1)) / $total]"
+		cat "$exo_dir/sub.txt"
+		echo
+		printf "${c_dim}subject saved      : rendu/%s/subject.txt${c_off}\n" "$exo"
+		printf "${c_dim}edit your solution : rendu/%s/%s.c${c_off}\n" "$exo" "$exo"
+		echo
+		printf "${c_yellow}Type : test | done | skip | next | exit  /> ${c_off}"
+		read -r choice
+		case "${choice:-test}" in
+			test)   cmd_run "$exo" || true ;;
+			done)   cmd_done "$exo" || true ;;
+			skip)   cmd_skip "$exo" ;;
+			next)   ;;
+			exit|q) return 0 ;;
+			*)      warn "unknown choice : '$choice'" ;;
+		esac
+		echo
+		read -rp "Press enter to continue..." _ || true
+	done
 }
 
 cmd_run() {
@@ -324,6 +408,7 @@ cmd_list() {
 case "${1:-launch}" in
 	""|launch)        bash exam.sh ;;
 	play)             cmd_play ;;
+	exam|focus|drill) cmd_exam ;;
 	run)              shift; cmd_run "$@" ;;
 	new)              shift; cmd_new "$@" ;;
 	subject|sub)      shift; cmd_subject "$@" ;;
