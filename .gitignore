@@ -1,0 +1,9 @@
+# tester artifacts
+out1
+out2
+out1.txt
+out2.txt
+*.o
+
+# personal workspace — never push your rendu/ to the upstream
+# (your fork can keep it if you want to track progress)
